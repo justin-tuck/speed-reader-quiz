@@ -1,8 +1,9 @@
 # Speed Reader Quiz
 
 Speed-read a text one word at a time, take a short comprehension quiz after each section, and
-review the quiz questions later as spaced-repetition flashcards. Everything runs in your browser
-and is stored there.
+review the quiz questions later as spaced-repetition flashcards. Your library is kept in your
+browser and synced through a small backend, which also writes the quizzes with Claude. Run it on
+your own machine, or deploy it to your own AWS account to use it from several devices.
 
 ## Setup
 
@@ -15,8 +16,63 @@ npm run dev
 
 Open the address Vite prints (normally http://localhost:5173).
 
-To write quiz questions the app needs a Claude API key. Open **Settings**, paste your key and save.
-You can create a key at https://platform.claude.com. Reading and study mode work without a key.
+To write quiz questions the backend needs a Claude API key, which you can create at
+https://platform.claude.com. Copy `.env.example` to `.env.local` and put the key after
+`ANTHROPIC_API_KEY=`. The dev server reads the file on every request, so there is no need to
+restart it. Reading and study mode work without a key.
+
+Running locally there is no login: everything belongs to one local user, and synced data is
+written to `.local-data/sync.json`. Both `.env.local` and `.local-data/` are ignored by git. The
+dev server only listens on your own machine; don't start it with `--host` on a network you don't
+trust, because anyone who can reach it could use your key.
+
+## Deploying to AWS
+
+`infra/` is an AWS CDK app that deploys the app to your own AWS account:
+
+- the built site in a private S3 bucket, served by CloudFront
+- the backend as one Lambda function behind an API Gateway HTTP API, at `/api/*` on the same address
+- sign-in with a Cognito user pool, with no public sign-up: you create the accounts
+- synced data in a DynamoDB table, where each user can only read and write their own records
+- the Claude API key in Secrets Manager
+
+You need AWS credentials for the account and region you want to deploy to.
+
+1. Store your Claude API key in Secrets Manager as a plain-text secret named
+   `speed-reader-quiz/anthropic-api-key`. The stack refers to the secret only by name, so the key
+   never passes through the CDK code or CloudFormation. With the AWS CLI, reading the key from a
+   file keeps it out of your shell history (delete the file afterwards):
+
+   ```bash
+   aws secretsmanager create-secret --name speed-reader-quiz/anthropic-api-key \
+     --secret-string file://claude-key.txt
+   ```
+
+2. Build the site, then deploy it:
+
+   ```bash
+   npm run build
+   cd infra
+   npm install
+   npx cdk bootstrap   # once per account and region
+   npm run deploy
+   ```
+
+3. Create your account. The deploy prints `SiteUrl` and `UserPoolId`.
+
+   ```bash
+   aws cognito-idp admin-create-user --user-pool-id <UserPoolId> \
+     --username you@example.com \
+     --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true
+   ```
+
+   Cognito emails you a temporary password. Open `SiteUrl`, sign in and choose a new password.
+
+To update the deployed app, run `npm run build` and then `npm run deploy` in `infra/` again.
+
+The API accepts at most 10 requests a second (bursts of 20), which also limits Claude spending;
+give the key a spending limit as well. The database and user pool are kept if the stack is
+deleted, and the stack has termination protection turned on.
 
 ## Commands
 
@@ -73,37 +129,46 @@ dark themes that follow the system setting.
 
 ## Where your data lives
 
-- Texts, sections, questions, flashcards and review history are in **IndexedDB** in your browser.
+- Texts, sections, questions, flashcards, review history and reading progress are in
+  **IndexedDB** in your browser, so the app keeps working offline. Changes are also synced
+  through the backend: to `.local-data/sync.json` when running locally, or to DynamoDB when
+  deployed.
 - The PDF file or web page snapshot a text was imported from is also in IndexedDB, for page
   previews. It is not synced: it stays in the browser that imported it.
-- Settings, including the API key, are in **localStorage**.
-- Nothing is sent anywhere except: the section text and your key to `api.anthropic.com` when a
-  quiz is generated, and the page address to the site you import from.
+- Settings (reading speed, section sizes, quiz and study options) are in **localStorage**. They
+  are not synced, so each device can have its own.
+- The Claude API key is only on the backend: in `.env.local` locally, or in Secrets Manager when
+  deployed. It is never sent to the browser.
+- When deployed, your sign-in tokens are kept in localStorage so you stay signed in between
+  visits.
+- The backend sends a section's text and the text's title to the Claude API when it writes a
+  quiz. It also fetches the pages you import by address, with their stylesheets and images for
+  the preview.
 
-The key is not in the source code or the build. It is readable by anyone who can use your
-browser profile, so prefer a key with a spending limit.
-
-Clearing the browser's site data for the app deletes everything. There is no export yet.
+Clearing the browser's site data for the app deletes this browser's copy. Synced data is still
+on the backend and comes back at the next sync. There is no export yet.
 
 ## Design notes
 
 ### Web page import
 
 Browsers do not let one site read another site's pages unless that site allows it (CORS), and
-most do not. The app tries, in order:
+most do not. So the app asks its own backend to fetch the page (`/api/fetch`, in
+`server/core/fetchPage.ts`). Deployed, the backend only answers signed-in users. Locally, it
+requires a custom request header, so other websites open in your browser cannot use it.
 
-1. A direct fetch from the browser.
-2. A small fetch helper built into the Vite dev and preview server (`server/fetchProxy.ts`). It
-   runs on your machine and fetches the page for the app. This is the only server-side code. It
-   requires a custom request header, so other websites open in your browser cannot use it.
-3. An external CORS proxy, only if you configure one in Settings. This matters only if you host
-   the built files somewhere without the helper.
+The fetcher only reaches public web addresses. It refuses localhost and private, link-local
+and similar address ranges. It checks the address a host name resolves to at the moment it
+connects, and it follows redirects one at a time so that each one is checked too. A page may be
+at most 4 MB, counted after decompression, and must arrive within 15 seconds. The page is
+returned to the app as data with a sandboxing content security policy, and is never shown as a
+page of the app.
 
-If all of these fail, the app says so and offers to switch to pasting the text.
+If the fetch fails, the app says so and suggests pasting the text instead.
 
 ### Quiz generation
 
-`src/lib/quiz.ts` calls the Messages API with model `claude-sonnet-5-5` and a JSON schema
+The backend (`server/core/quiz.ts`) calls the Messages API with model `claude-sonnet-5-5` and a JSON schema
 (structured output), then validates the reply itself: each question needs exactly four distinct
 options, a valid correct index and an explanation. A malformed reply is retried once
 automatically; after that, and for any API error, you get a message and a **Try again** button.
@@ -112,6 +177,15 @@ passage the request is retried on another model.
 
 Only multiple choice is implemented. Grading free-text answers reliably would need another model
 call per answer.
+
+### Sync
+
+Each device keeps a queue of the records it changed, sends them to `/api/sync/push`, and then
+asks `/api/sync/pull` for everything written since its last sync. This runs shortly after each
+change, every minute while the app is open, and when the app comes back online or into view.
+When two devices change the same record, the later change wins. Deletions are kept as markers so
+they reach every device. The server limits how far ahead of its own clock a record's time may
+be, so a device with a wrong clock cannot win every conflict.
 
 ### Page previews
 
@@ -175,11 +249,25 @@ interval fuzz.
 ## Project structure
 
 ```
-server/fetchProxy.ts        Local page fetcher (Vite plugin)
+server/
+  core/                     The backend, the same locally and on AWS
+    router.ts               The /api routes
+    quiz.ts                 Claude request, prompt, reply validation
+    fetchPage.ts            Fetches pages to import, refusing private addresses
+    sync.ts                 Sync rules and record validation
+  stores/                   Where synced records are kept: a local file or DynamoDB
+  devPlugin.ts              Runs the backend inside the Vite dev and preview servers
+  lambda.ts                 Runs the backend on AWS Lambda
+  securityHeaders.ts        The site's content security policy
+shared/api.ts               Request and response types shared by the app and the backend
+infra/                      AWS CDK app that deploys the site and backend
 src/
   types.ts                  Shared data types
   App.tsx                   Navigation between screens
   lib/
+    api.ts                  Calls to the backend, with the sign-in token
+    auth.ts                 Sign-in with Cognito, when deployed
+    sync.ts                 Background sync with the backend
     extract/                Text extraction: pdf.ts, url.ts, index.ts; snapshot.ts for web previews
     splitter.ts             Section splitting
     skip.ts                 Skip suggestions, and the first split of an imported text
@@ -187,7 +275,7 @@ src/
     pdfRender.ts            Draws PDF pages for previews
     previews.ts             Adds the original to a text imported without one
     rsvp.ts                 RSVP engine: tokens, recognition point, timing, playback
-    quiz.ts                 Claude request, prompt, reply validation
+    quiz.ts                 Asks the backend for a quiz
     quizSession.ts          Generates a quiz and saves it as questions and cards
     scheduler.ts            Spaced-repetition scheduling, queue and stats
     storage.ts              IndexedDB access
@@ -198,7 +286,7 @@ src/
     SessionView, Reader, Quiz                       Read → quiz → re-read → retake
     PagePreview                                     Page thumbnail and expanded view
     StudyView                                       Flashcard review
-    SettingsView                                    API key and preferences
+    SettingsView                                    Account, sync and preferences
 ```
 
 ## Known limits
