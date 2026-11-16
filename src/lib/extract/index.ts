@@ -1,3 +1,4 @@
+import { MAX_PDF_BYTES } from '../../../shared/api';
 import type { SourceKind, SourceOriginal } from '../../types';
 import { ExtractError } from './errors';
 import { extractPdfText } from './pdf';
@@ -12,11 +13,9 @@ export interface Extracted {
   sourceRef?: string;
   /** For PDFs: the paragraphs on each page, used to tell which page a section is on. */
   pages?: string[][];
-  /** The PDF file or page snapshot, kept on this device for page previews. */
+  /** The PDF file or page snapshot, kept for page previews. */
   original?: SourceOriginal;
 }
-
-const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
 export async function extractFromPdfFile(file: File): Promise<Extracted> {
   if (file.size > MAX_PDF_BYTES) throw new ExtractError('This PDF is larger than 100 MB.');

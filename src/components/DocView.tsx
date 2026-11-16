@@ -178,8 +178,9 @@ export function DocView({ docId, dataVersion, onRead, onBack }: Props) {
       {source === null && (doc.source === 'pdf' || doc.source === 'url') && (
         <div className="notice info" ref={attachNotice}>
           <p className="notice-lead">
-            Page previews need the original {doc.source === 'pdf' ? 'PDF' : 'web page'} in this browser. This text was
-            imported before previews existed, or in another browser.
+            {doc.source === 'pdf'
+              ? 'Page previews need the original PDF, and neither this browser nor the server has a copy. Choose the file once and it is kept for next time.'
+              : 'Page previews need the original web page in this browser. This text was imported before previews existed, or in another browser.'}
           </p>
           <div className="row wrap">
             {doc.source === 'pdf' ? (

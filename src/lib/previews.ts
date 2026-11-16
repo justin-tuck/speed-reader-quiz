@@ -6,7 +6,8 @@
 import type { Doc } from '../types';
 import { ExtractError, extractFromPdfFile, extractFromUrl, type Extracted } from './extract';
 import { mapSectionsToPages, matchShare } from './pageMap';
-import { getSections, putSections, saveSource } from './storage';
+import { keepOriginal } from './originals';
+import { getSections, putSections } from './storage';
 
 /** At least this share of the sections must be found in a PDF for it to count as the text's original. */
 const MIN_MATCH = 0.5;
@@ -23,7 +24,7 @@ async function attach(doc: Doc, extracted: Extracted): Promise<void> {
     const starts = mapSectionsToPages(extracted.pages, texts);
     await putSections(sections.map((s, i) => ({ ...s, pageStarts: starts[i] })));
   }
-  await saveSource({ ...extracted.original, id: doc.id });
+  await keepOriginal(doc.id, extracted.original);
 }
 
 export async function attachPdfFile(doc: Doc, file: File): Promise<void> {

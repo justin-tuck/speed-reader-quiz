@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { lettersOnly, pageAtWord, paragraphStarts } from '../lib/pageMap';
 import { openPdf, renderPdfPage } from '../lib/pdfRender';
-import { getSource } from '../lib/storage';
+import { loadSource } from '../lib/originals';
 import type { Doc, DocSource, Section } from '../types';
 
 /**
- * Loads the original a document was imported from. `undefined` while
- * loading, `null` when this device does not have it. A change of `version`
- * loads it again.
+ * Loads the original a document was imported from, from this browser or
+ * else the backend. `undefined` while loading, `null` when neither has it.
+ * A change of `version` loads it again.
  */
 export function useDocSource(docId: string, version = 0): DocSource | null | undefined {
   const [state, setState] = useState<{ docId: string; source: DocSource | null } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void getSource(docId)
+    void loadSource(docId)
       .catch(() => undefined)
       .then((source) => !cancelled && setState({ docId, source: source ?? null }));
     return () => {
@@ -385,7 +385,7 @@ export function PagePreview({ doc, section, sectionCount, source, word = 0, size
             <>
               {doc.source !== 'text' && (
                 <p className="notice info">
-                  The original {doc.source === 'pdf' ? 'PDF' : 'page'} is not stored in this browser, so this shows the
+                  The original {doc.source === 'pdf' ? 'PDF' : 'page'} is not available here, so this shows the
                   section's text. To see the real pages, add the original from the text's section list.
                 </p>
               )}

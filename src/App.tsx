@@ -7,6 +7,7 @@ import { SettingsView } from './components/SettingsView';
 import { StudyView } from './components/StudyView';
 import { getAuthState, initAuth, signIn, subscribeAuth } from './lib/auth';
 import { loadSettings, saveSettings } from './lib/settings';
+import { startOriginalBackup } from './lib/originals';
 import { getSyncStatus, onRemoteChange, startSync, subscribeSyncStatus } from './lib/sync';
 import type { Settings } from './types';
 
@@ -53,9 +54,12 @@ export function App() {
   useEffect(() => {
     if (!ready) return;
     const stopListening = onRemoteChange(() => setDataVersion((v) => v + 1));
+    // Started before the first sync, so that sync is followed by a backup too.
+    const stopBackup = startOriginalBackup();
     const stopSync = startSync();
     return () => {
       stopListening();
+      stopBackup();
       stopSync();
     };
   }, [ready]);
