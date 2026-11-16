@@ -44,8 +44,10 @@ export interface PageStart {
 export type SourceOriginal = { kind: 'pdf'; file: Blob } | { kind: 'html'; html: string; url: string };
 
 /**
- * A stored original, kept to show page previews. It can be large, so it stays
- * on the device that imported it and is not synced. The id equals the doc id.
+ * A stored original, kept to show page previews. It can be large, so it is
+ * not synced with the other records. A PDF is also kept by the backend
+ * (src/lib/originals.ts); a web page snapshot stays in the browser that
+ * took it. The id equals the doc id.
  */
 export type DocSource = SourceOriginal & { id: string };
 

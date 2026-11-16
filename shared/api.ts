@@ -84,3 +84,11 @@ export const API_HEADER = 'x-srq-client';
 
 export const MAX_SECTION_CHARS = 60_000;
 export const MAX_PUSH_RECORDS = 100;
+
+/** The largest PDF that can be imported, and so the largest original the backend keeps. */
+export const MAX_PDF_BYTES = 100 * 1024 * 1024;
+
+/** GET /api/originals: the docs whose original PDF the backend keeps. */
+export interface OriginalsListResponse {
+  ids: string[];
+}

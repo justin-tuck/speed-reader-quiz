@@ -21,8 +21,9 @@ https://platform.claude.com. Copy `.env.example` to `.env.local` and put the key
 `ANTHROPIC_API_KEY=`. The dev server reads the file on every request, so there is no need to
 restart it. Reading and study mode work without a key.
 
-Running locally there is no login: everything belongs to one local user, and synced data is
-written to `.local-data/sync.json`. Both `.env.local` and `.local-data/` are ignored by git. The
+Running locally there is no login: everything belongs to one local user. Synced data is
+written to `.local-data/sync.json`, and the PDFs you import to `.local-data/originals/`. Both
+`.env.local` and `.local-data/` are ignored by git. The
 dev server only listens on your own machine; don't start it with `--host` on a network you don't
 trust, because anyone who can reach it could use your key.
 
@@ -134,7 +135,10 @@ dark themes that follow the system setting.
   through the backend: to `.local-data/sync.json` when running locally, or to DynamoDB when
   deployed.
 - The PDF file or web page snapshot a text was imported from is also in IndexedDB, for page
-  previews. It is not synced: it stays in the browser that imported it.
+  previews. When running locally, the backend also keeps each PDF in `.local-data/originals/`,
+  so a browser that does not have it (another browser, the app opened at another port, or
+  browser storage that was cleared) downloads it from there. Web page snapshots stay in the
+  browser that took them, and the deployed app does not keep PDFs on the backend yet.
 - Settings (reading speed, section sizes, quiz and study options) are in **localStorage**. They
   are not synced, so each device can have its own.
 - The Claude API key is only on the backend: in `.env.local` locally, or in Secrets Manager when
@@ -193,7 +197,10 @@ be, so a device with a wrong clock cannot win every conflict.
 two kinds of source need different approaches:
 
 - **PDF.** The file is kept in IndexedDB and pdf.js draws the page onto a canvas, so images and
-  layout appear as in the PDF. When a text is saved, `src/lib/pageMap.ts` finds each section's
+  layout appear as in the PDF. The local backend keeps a copy too (`src/lib/originals.ts`,
+  routes `/api/originals/<doc id>`): it is uploaded at import, downloaded by a browser that does
+  not have it, and deleted when the text is deleted on any device. After each sync, PDFs that
+  only a browser has, such as ones imported before the backend kept them, are uploaded. When a text is saved, `src/lib/pageMap.ts` finds each section's
   text in the text of the pages and stores which page each part of the section is on, so the
   thumbnail follows the word being read. The expanded view can page through the whole PDF.
 - **Web page.** A page cannot be drawn to an image in the browser, so the app stores a snapshot
@@ -203,9 +210,9 @@ two kinds of source need different approaches:
   loaded from the original site when a snapshot is shown, which also keeps the site's content
   security policy unchanged.
 
-Pasted text, and texts whose original is not on this device, show the section's text laid out
-as a page instead. For a PDF or web page text without its original, the section list offers to
-add it (`src/lib/previews.ts`): choose the PDF file, which is checked against the text and then
+Pasted text, and texts whose original is neither in this browser nor on the backend, show the
+section's text laid out as a page instead. For a PDF or web page text without its original, the
+section list offers to add it (`src/lib/previews.ts`): choose the PDF file, which is checked against the text and then
 mapped to pages, or fetch the web page again.
 
 ### Skipped sections
@@ -255,7 +262,9 @@ server/
     quiz.ts                 Claude request, prompt, reply validation
     fetchPage.ts            Fetches pages to import, refusing private addresses
     sync.ts                 Sync rules and record validation
-  stores/                   Where synced records are kept: a local file or DynamoDB
+    originals.ts            Checks for stored original PDFs
+  stores/                   Where synced records are kept (a local file or DynamoDB), and
+                            original PDFs (local files)
   devPlugin.ts              Runs the backend inside the Vite dev and preview servers
   lambda.ts                 Runs the backend on AWS Lambda
   securityHeaders.ts        The site's content security policy
@@ -274,6 +283,7 @@ src/
     pageMap.ts              Which PDF page each part of a section is on
     pdfRender.ts            Draws PDF pages for previews
     previews.ts             Adds the original to a text imported without one
+    originals.ts            Keeps original PDFs on the backend too, and fetches them back
     rsvp.ts                 RSVP engine: tokens, recognition point, timing, playback
     quiz.ts                 Asks the backend for a quiz
     quizSession.ts          Generates a quiz and saves it as questions and cards
@@ -296,8 +306,9 @@ src/
 - PDFs with multiple columns, tables or footnotes may come out in an odd order. Fix them in the
   section editor or paste the text instead.
 - Pages that build their content with JavaScript or need a login cannot be imported by address.
-- Originals for page previews are not synced: each browser needs its own copy, added at import
-  or later from the section list. Until then the preview shows the section's text.
+- Web page snapshots, and PDFs in the deployed app, are not kept on the backend: each browser
+  needs its own copy, added at import or later from the section list. Until then the preview
+  shows the section's text.
 - Skip suggestions are guesses from the text. They can miss front matter laid out unusually, and
   a section that mixes prose with references is suggested only if it is mostly references.
 - A web page preview is a snapshot without scripts: up to 40 images (12 MB in total) and 12

@@ -21,7 +21,7 @@ const DB_NAME = 'speed-reader-quiz';
 const DB_VERSION = 3;
 const DATA_STORES: SyncStore[] = ['docs', 'sections', 'questions', 'cards', 'reviews', 'progress'];
 const ALL_STORES = [...DATA_STORES, 'outbox', 'meta'];
-/** Imported originals for page previews. Kept on this device only, so not in DATA_STORES. */
+/** Imported originals for page previews. Not synced as records, so not in DATA_STORES; originals.ts keeps PDFs on the backend. */
 const SOURCES = 'sources';
 
 // The stores hold different record types, so the database is opened untyped
@@ -181,6 +181,11 @@ export async function saveSource(source: DocSource): Promise<void> {
 
 export async function getSource(docId: string): Promise<DocSource | undefined> {
   return (await (await db()).get(SOURCES, docId)) as DocSource | undefined;
+}
+
+/** The ids of the docs whose original is stored here. */
+export async function listSourceIds(): Promise<string[]> {
+  return (await (await db()).getAllKeys(SOURCES)) as string[];
 }
 
 // --- reading position

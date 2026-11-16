@@ -64,16 +64,27 @@ function validate(raw: unknown, now: number): SyncRecord {
   return { store: r.store as SyncStore, id: r.id, updatedAt, data: r.data };
 }
 
+/**
+ * Saves pushed records. `onAccepted` runs for each record that was newer
+ * than the stored copy, so it is now the record's current state.
+ */
 export async function push(
   store: RecordStore,
   userId: string,
   records: unknown,
   now: number,
+  onAccepted?: (record: SyncRecord) => Promise<void>,
 ): Promise<PushResponse> {
   if (!Array.isArray(records)) throw new SyncError('Expected a list of records.');
   if (records.length > MAX_PUSH_RECORDS) throw new SyncError('Too many records in one request.');
   const clean = records.map((r) => validate(r, now));
-  const results = await Promise.all(clean.map((r) => store.putIfNewer(userId, r, now)));
+  const results = await Promise.all(
+    clean.map(async (r) => {
+      const accepted = await store.putIfNewer(userId, r, now);
+      if (accepted) await onAccepted?.(r);
+      return accepted;
+    }),
+  );
   return { accepted: results.filter(Boolean).length };
 }
 

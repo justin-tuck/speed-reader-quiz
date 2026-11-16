@@ -3,7 +3,8 @@ import type { Extracted } from '../lib/extract';
 import { createPageLocator, mapSectionsToPages } from '../lib/pageMap';
 import { planSections, type SkipReason } from '../lib/skip';
 import { countWords, splitIntoSections, splitTextAt } from '../lib/splitter';
-import { createDocument, newId, saveSource } from '../lib/storage';
+import { keepOriginal } from '../lib/originals';
+import { createDocument, newId } from '../lib/storage';
 import type { Doc, DocSource, Section, Settings } from '../types';
 import { PagePreview } from './PagePreview';
 
@@ -165,7 +166,7 @@ export function SectionEditor({ extracted, settings, onSaved, onBack }: Props) {
       }));
       await createDocument(doc, sections);
       // The original is only for page previews; the text is usable without it.
-      if (extracted.original) await saveSource({ ...extracted.original, id: doc.id }).catch(() => {});
+      if (extracted.original) await keepOriginal(doc.id, extracted.original).catch(() => {});
       onSaved(doc.id);
     } catch {
       setError('The text could not be saved. Your browser may be out of storage space or blocking storage.');
